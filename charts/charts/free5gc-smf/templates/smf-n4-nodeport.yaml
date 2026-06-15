@@ -1,0 +1,28 @@
+#
+# Distributed-UPF split deployment (IntEdge): expose the SMF's N4/PFCP as a
+# NodePort so the EDGE UPF (on another user cluster) can reach the SMF for
+# heartbeats and session/usage reports. The IntEdge `smf` cross-UC binding
+# points at this Service; the SMF advertises nodeID
+# `smf.upstream.svc.cluster.local`, which the edge UPF resolves locally via that
+# binding. Mirrors fleet-free5gc-upf's upf-n4 NodePort on the reverse leg.
+#
+{{- with .Values.smf }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: smf-n4
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $.Values.global.projectName }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "free5gc-smf.selectorLabels" $ | nindent 4 }}
+    project: {{ $.Values.global.projectName }}
+    nf: {{ .name }}
+  ports:
+    - name: pfcp
+      protocol: UDP
+      port: 8805
+      targetPort: 8805
+{{- end }}

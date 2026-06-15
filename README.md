@@ -21,24 +21,29 @@ edge-5g                         core-5g
 │ gNB ──N3──► UPF │             │ AMF  SMF  NRF  AUSF  UDM ... │
 │         │  └─N6─► internet     │                             │
 └─────────┼─────┘               └─────────────────────────────┘
-          │  N2 (gNB→AMF)  ─── IntEdge binding ──►
-          └─ N4 (SMF→UPF)  ◄── IntEdge binding ───
+          │  N2 (gNB→AMF)   ── `amf` binding ──►
+          └─ N4 (SMF⇄UPF)   `n4` + `smf` bindings ⇄
 ```
 
-## Before deploying — set two addresses in `values.yaml`
-Both come from your IntEdge cross-UC bindings:
+## Zero-touch — nothing to hand-edit
+PFCP is bidirectional, and **both legs ride IntEdge cross-UC bindings by name**,
+so there are no addresses to set per deployment:
 
-- **`EDGE_UPF_N4_ADDR`** — the address the core SMF uses to reach the **edge
-  UPF's N4** (the UPF binds PFCP on `0.0.0.0` and exposes the `upf-n4` NodePort;
-  point this at whatever your N4 binding surfaces in core-5g).
-- **`SMF_N4_ADDR`** — the SMF's own **fabric-reachable** PFCP address so the
-  edge UPF can reply (its pod IP, or the address your SMF↔UPF binding exposes).
+| Leg | Direction | How it resolves |
+|-----|-----------|-----------------|
+| **N2** | gNB → AMF | `amf` binding (NGAP) |
+| **N4 forward** | SMF → UPF | SMF `userplaneInformation` nodeID = `n4.upstream.svc.cluster.local` (the `n4` binding → edge UPF's `upf-n4` NodePort) |
+| **N4 reverse** | UPF → SMF | SMF advertises nodeID `smf.upstream.svc.cluster.local`; the edge UPF resolves that locally via its `smf` binding → this SMF's `smf-n4` NodePort |
 
-N2 is unchanged — the gNB already reaches the AMF via the N2 binding.
+Just deploy in order — **UPF (edge) → control (core) → UERANSIM (edge)** — and
+make sure the matching IntEdge bindings (`n4`, `smf`, `amf`) are wired between
+the UCs. No pod IPs, no manual `values.yaml` edits.
 
 ## Notes
 - `deployUpf: false` is the only subchart toggle changed vs the full deployment.
 - `n4network.enabled: false` puts SMF PFCP on the pod network (no Multus N4).
+- `smf-n4` is a NodePort exposing the SMF's PFCP so the reverse `smf` binding can
+  reach it (mirrors the UPF's `upf-n4` on the forward leg).
 - The SMF's `userplaneInformation` keeps the **N3 endpoint** as the edge UPF's
   local ipvlan IP (`10.100.50.233`) — that's resolved locally in edge-5g.
 - No `gtp5g-installer` dependency here (only the UPF needs the kernel module).

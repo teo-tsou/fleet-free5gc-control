@@ -6,9 +6,9 @@
 # GTP-U user plane stays LOCAL and never has to cross the OVN-IC fabric.
 #
 # Only two interfaces cross UCs, both control-plane, both wired with IntEdge
-# cross-UC bindings:
-#   * N2  gNB(edge)  -> AMF(core)   NGAP — already working
-#   * N4  SMF(core)  -> UPF(edge)   PFCP — set the two <<< addresses below
+# cross-UC bindings — ZERO manual addressing, both legs use binding FQDNs:
+#   * N2  gNB(edge)  -> AMF(core)   NGAP — `amf` binding
+#   * N4  SMF(core) <-> UPF(edge)   PFCP — `n4` (SMF→UPF) + `smf` (UPF→SMF)
 # ============================================================================
 
 global:
@@ -53,10 +53,14 @@ global:
   smf:
     n4if:
       # listenAddr binds all interfaces (incl. the pod net). nodeID/externalAddr
-      # is the SMF's *fabric-reachable* PFCP address so the edge UPF can reply.
+      # is the address the SMF *advertises* to the UPF in the PFCP association —
+      # so it must be what the EDGE UPF can dial. We use the reverse `smf`
+      # binding's FQDN, which IntEdge materializes in the edge UC as a local
+      # Service pointing back at this SMF's smf-n4 NodePort. Zero-touch: no pod
+      # IP, nothing to edit per-deployment.
       listenAddr: "0.0.0.0"
-      nodeID: "SMF_N4_ADDR"         # <<< SMF's cross-UC-reachable PFCP address
-      externalAddr: "SMF_N4_ADDR"   # <<<  (its pod IP, or the addr your SMF<->UPF binding exposes)
+      nodeID: "smf.upstream.svc.cluster.local"        # reverse `smf` binding
+      externalAddr: "smf.upstream.svc.cluster.local"  # reverse `smf` binding
       ipAddress: "0.0.0.0"          # fallback for any template still using ipAddress
 
 # ── subchart toggles: everything EXCEPT the UPF ─────────────────────────────
