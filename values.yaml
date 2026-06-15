@@ -1,0 +1,142 @@
+# ============================================================================
+# fleet-free5gc-control — free5gc 5G CORE CONTROL PLANE (no UPF)
+# ============================================================================
+# Deploy this to the CORE UC (e.g. core-5g). The data plane (UPF) lives in the
+# EDGE UC (fleet-free5gc-upf, e.g. edge-5g) right next to the gNB, so the N3
+# GTP-U user plane stays LOCAL and never has to cross the OVN-IC fabric.
+#
+# Only two interfaces cross UCs, both control-plane, both wired with IntEdge
+# cross-UC bindings:
+#   * N2  gNB(edge)  -> AMF(core)   NGAP — already working
+#   * N4  SMF(core)  -> UPF(edge)   PFCP — set the two <<< addresses below
+# ============================================================================
+
+global:
+  projectName: free5gc
+  userPlaneArchitecture: single
+  storageClass: local-path
+
+  amf:
+    service:
+      ngap:
+        enabled: true
+        name: amf-n2
+        port: 38412
+        protocol: SCTP
+        type: NodePort
+
+  # N2 (AMF <-> gNB NGAP). The gNB reaches the AMF via the N2 binding/NodePort.
+  n2network:
+    enabled: true
+    name: n2network
+    type: ipvlan
+    masterIf: enp1s0
+    subnetIP: 10.100.50.248
+    cidr: 29
+    gatewayIP: 10.100.50.254
+    excludeIP: 10.100.50.254
+
+  # N3 / N6 / N9 belong to the UPF — NOT deployed in the core.
+  n3network:
+    enabled: false
+  n6network:
+    enabled: false
+  n9network:
+    enabled: false
+
+  # N4: run SMF PFCP on the POD network (no Multus ipvlan) so it routes to the
+  # edge UPF across the fabric. Disabling n4network drops the N4 annotation on
+  # the SMF pod (smf-deployment gates the annotation on n4network.enabled).
+  n4network:
+    enabled: false
+
+  smf:
+    n4if:
+      # listenAddr binds all interfaces (incl. the pod net). nodeID/externalAddr
+      # is the SMF's *fabric-reachable* PFCP address so the edge UPF can reply.
+      listenAddr: "0.0.0.0"
+      nodeID: "SMF_N4_ADDR"         # <<< SMF's cross-UC-reachable PFCP address
+      externalAddr: "SMF_N4_ADDR"   # <<<  (its pod IP, or the addr your SMF<->UPF binding exposes)
+      ipAddress: "0.0.0.0"          # fallback for any template still using ipAddress
+
+# ── subchart toggles: everything EXCEPT the UPF ─────────────────────────────
+deployMongoDb: true
+deployAmf: true
+deployAusf: true
+deployChf: true
+deployN3iwf: false
+deployNef: true
+deployNrf: true
+deployNssf: true
+deployPcf: true
+deploySmf: true
+deployUdm: true
+deployUdr: true
+deployUpf: false        # <<< the only subchart change vs the full deployment
+deployWebui: true
+deployDbPython: true
+
+free5gc-amf:
+  amf:
+    n2if:
+      ipAddress: 10.100.50.249
+
+free5gc-smf:
+  smf:
+    configuration:
+      # Override only the inner config block to repoint the UPF at the edge.
+      # (urrConfiguration / logger / metrics / ueRoutingInfo are preserved.)
+      configuration: |-
+        smfName: SMF
+        snssaiInfos:
+          - sNssai:
+              sst: 1
+              sd: 010203
+            dnnInfos:
+              - dnn: internet
+                dns:
+                  ipv4: 8.8.8.8
+                  ipv6: 2001:4860:4860::8888
+        plmnList:
+          - mcc: 208
+            mnc: 93
+        userplaneInformation:
+          upNodes:
+            gNB1:
+              type: AN
+            UPF:
+              type: UPF
+              # PFCP/N4 address of the EDGE UPF. This is the local Service the
+              # IntEdge `n4` binding materializes in this UC (selectorless svc
+              # named after the binding -> the edge UPF's upf-n4 NodePort). If
+              # free5gc rejects the FQDN, use that Service's ClusterIP instead.
+              nodeID: n4.upstream.svc.cluster.local   # the `n4` binding
+              sNssaiUpfInfos:
+                - sNssai:
+                    sst: 1
+                    sd: 010203
+                  dnnUpfInfoList:
+                    - dnn: internet
+                      pools:
+                        - cidr: 10.1.0.0/16
+              interfaces:
+                - interfaceType: N3
+                  # N3 GTP-U endpoint of the edge UPF. This is LOCAL to the edge
+                  # UC (gNB + UPF co-located there), so it stays the edge UPF's
+                  # ipvlan N3 IP — the SMF just relays it to the gNB at PDU setup.
+                  endpoints:
+                    - 10.100.50.233
+                  networkInstances:
+                    - internet
+          links:
+            - A: gNB1
+              B: UPF
+        locality: area1
+        t3591:
+          enable: true
+          expireTime: 16s
+          maxRetryTimes: 3
+        t3592:
+          enable: true
+          expireTime: 16s
+          maxRetryTimes: 3

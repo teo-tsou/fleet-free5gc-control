@@ -1,0 +1,13 @@
+defaultNamespace: free5gc
+name: free5gc-control
+
+# Control plane only — no UPF, so no gtp5g kernel module needed here.
+# multus-cni is still required for the N2 (AMF) ipvlan network.
+dependsOn:
+  - name: multus-cni
+
+helm:
+  chart: charts
+  releaseName: free5gc
+  valuesFiles:
+    - values.yaml
