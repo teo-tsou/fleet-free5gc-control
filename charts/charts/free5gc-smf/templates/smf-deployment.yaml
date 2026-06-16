@@ -75,7 +75,7 @@ spec:
         securityContext:
           capabilities:
             add: ["NET_ADMIN"]
-        command: ["sh", "-c", "ip link set dev eth0 mtu {{ $.Values.global.smf.pfcpMtu | default 1280 }}"]
+        command: ["sh", "-c", "ip link set dev eth0 mtu {{ $.Values.global.smf.pfcpMtu | default 1200 }}"]
 
       containers:
       - name: {{ .name }}
