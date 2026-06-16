@@ -64,6 +64,18 @@ spec:
         - name: DEPENDENCIES
           value: {{ $.Values.global.sbi.scheme }}://{{ $.Values.global.nrf.service.name }}:{{ $.Values.global.nrf.service.port }}
         command: ['sh', '-c', 'set -x; for dependency in $DEPENDENCIES; do while [ $(curl --insecure --connect-timeout 1 -s -o /dev/null -w "%{http_code}" $dependency) -ne 200 ]; do echo waiting for dependencies; sleep 1; done; done;']
+      # Lower the pod-network MTU so the SMF pre-fragments the (large) PFCP
+      # Session Establishment Request into pieces that survive the cross-UC
+      # OVN-IC geneve + IPsec encapsulation without underlay re-fragmentation
+      # through the edge UPF's NodePort — which corrupted the datagram and made
+      # the UPF reject it with "unexpected EOF". Init containers share the pod
+      # netns, so this MTU persists for the SMF container.
+      - name: set-pfcp-mtu
+        image: "{{ .image.name }}{{ if .image.tag }}:{{ .image.tag }}{{ else if .image.digest }}@sha256:{{ .image.digest }}{{ else }}:{{ $.Chart.AppVersion }}{{ end }}"
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+        command: ["sh", "-c", "ip link set dev eth0 mtu {{ $.Values.global.smf.pfcpMtu | default 1280 }}"]
 
       containers:
       - name: {{ .name }}
