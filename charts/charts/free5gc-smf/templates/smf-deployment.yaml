@@ -95,8 +95,20 @@ spec:
         - name: metrics
           containerPort: {{ $.Values.smf.configuration.metrics.port }}
         {{- end }}
-        command: ["./smf"]
-        args: ["-c", "./config/smfcfg.yaml", "-u", "./config/uerouting.yaml"]
+        # Substitute POD_IP_ADDR in smfcfg with the real pod IP before starting,
+        # so the SMF's nodeID/F-SEID is a valid IPv4 (an FQDN there yields an
+        # F-SEID with no address -> edge UPF "unexpected EOF"). The mounted
+        # configmap is read-only, so template into /tmp. (official free5gc-helm
+        # approach.)
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            POD_IP=$(hostname -i | awk '{print $1}')
+            echo "[smf-wrapper] Pod IP: $POD_IP"
+            cp ./config/smfcfg.yaml /tmp/smfcfg.yaml
+            sed -i "s/POD_IP_ADDR/$POD_IP/g" /tmp/smfcfg.yaml
+            echo "[smf-wrapper] pfcp config:"; grep -A3 'pfcp:' /tmp/smfcfg.yaml
+            exec ./smf -c /tmp/smfcfg.yaml -u ./config/uerouting.yaml
         env:
           - name: GIN_MODE
             value: release

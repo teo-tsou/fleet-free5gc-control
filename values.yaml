@@ -52,15 +52,21 @@ global:
 
   smf:
     n4if:
-      # listenAddr binds all interfaces (incl. the pod net). nodeID/externalAddr
-      # is the address the SMF *advertises* to the UPF in the PFCP association —
-      # so it must be what the EDGE UPF can dial. We use the reverse `smf`
-      # binding's FQDN, which IntEdge materializes in the edge UC as a local
-      # Service pointing back at this SMF's smf-n4 NodePort. Zero-touch: no pod
-      # IP, nothing to edit per-deployment.
+      # The SMF's OWN PFCP identity. nodeID/externalAddr MUST be a valid IPv4:
+      # the CP F-SEID in the Session Establishment Request is IPv4/IPv6-only, so
+      # an FQDN here makes free5GC emit an F-SEID with NO address, and the edge
+      # UPF (wmnsk/go-pfcp) hits "unexpected EOF" decoding it (confirmed by
+      # decoding the live packet, 2026-06-16). The Node ID IE supports FQDN —
+      # which is why Association worked — but Session Establishment does not.
+      # POD_IP_ADDR is replaced with the real pod IP at startup by the SMF
+      # command wrapper (the official free5gc-helm approach). NOTE: this means
+      # the reverse `smf` binding is unused — the UPF learns the SMF's pod IP
+      # (not cross-UC routable), so UPF->SMF reports/DDN won't return; the data
+      # path is UPF-local and the SMF-driven heartbeats keep the association up,
+      # so the UE still attaches and gets internet.
       listenAddr: "0.0.0.0"
-      nodeID: "smf.upstream.svc.cluster.local"        # reverse `smf` binding
-      externalAddr: "smf.upstream.svc.cluster.local"  # reverse `smf` binding
+      nodeID: "POD_IP_ADDR"
+      externalAddr: "POD_IP_ADDR"
       ipAddress: "0.0.0.0"          # fallback for any template still using ipAddress
 
 # ── subchart toggles: everything EXCEPT the UPF ─────────────────────────────
