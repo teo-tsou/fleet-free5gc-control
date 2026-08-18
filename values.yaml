@@ -65,8 +65,8 @@ global:
       # path is UPF-local and the SMF-driven heartbeats keep the association up,
       # so the UE still attaches and gets internet.
       listenAddr: "0.0.0.0"
-      nodeID: "POD_IP_ADDR"
-      externalAddr: "POD_IP_ADDR"
+      nodeID: "NODE_IP_ADDR"
+      externalAddr: "NODE_IP_ADDR"
       ipAddress: "0.0.0.0"          # fallback for any template still using ipAddress
 
 # ── subchart toggles: everything EXCEPT the UPF ─────────────────────────────
