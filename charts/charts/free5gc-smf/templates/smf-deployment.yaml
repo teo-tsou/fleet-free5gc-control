@@ -78,6 +78,9 @@ spec:
         - name: n4
           containerPort: 8805
           protocol: UDP
+          {{- if eq ($.Values.global.smf.n4if.nodeID | default "") "NODE_IP_ADDR" }}
+          hostPort: 8805
+          {{- end }}
         {{- end }}
         {{- if $.Values.smf.configuration.metrics.enable }}
         - name: metrics
@@ -95,11 +98,16 @@ spec:
             echo "[smf-wrapper] Pod IP: $POD_IP"
             cp ./config/smfcfg.yaml /tmp/smfcfg.yaml
             sed -i "s/POD_IP_ADDR/$POD_IP/g" /tmp/smfcfg.yaml
+            sed -i "s/NODE_IP_ADDR/${HOST_IP:-$POD_IP}/g" /tmp/smfcfg.yaml
             echo "[smf-wrapper] pfcp config:"; grep -A3 'pfcp:' /tmp/smfcfg.yaml
             exec ./smf -c /tmp/smfcfg.yaml -u ./config/uerouting.yaml
         env:
           - name: GIN_MODE
             value: release
+          - name: HOST_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
         volumeMounts:
         - mountPath: {{ .volume.mount }}
           name: {{ include "free5gc-smf.fullname" $ }}-volume
