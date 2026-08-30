@@ -52,18 +52,11 @@ global:
 
   smf:
     n4if:
-      # The SMF's OWN PFCP identity. nodeID/externalAddr MUST be a valid IPv4:
-      # the CP F-SEID in the Session Establishment Request is IPv4/IPv6-only, so
-      # an FQDN here makes free5GC emit an F-SEID with NO address, and the edge
-      # UPF (wmnsk/go-pfcp) hits "unexpected EOF" decoding it (confirmed by
-      # decoding the live packet, 2026-06-16). The Node ID IE supports FQDN —
-      # which is why Association worked — but Session Establishment does not.
-      # POD_IP_ADDR is replaced with the real pod IP at startup by the SMF
-      # command wrapper (the official free5gc-helm approach). NOTE: this means
-      # the reverse `smf` binding is unused — the UPF learns the SMF's pod IP
-      # (not cross-UC routable), so UPF->SMF reports/DDN won't return; the data
-      # path is UPF-local and the SMF-driven heartbeats keep the association up,
-      # so the UE still attaches and gets internet.
+      # POD_IP_ADDR is replaced with the real pod IP at startup (official
+      # free5gc-helm approach). Since IntEdge's routable pod fabric (§44),
+      # this pod-IP identity IS cross-site routable once the n4/smf bindings
+      # wire — UPF→SMF reports, DDN and heartbeats return over the fabric
+      # (verified: URR usage reports delivered cross-site, 2026-08-29).
       listenAddr: "0.0.0.0"
       nodeID: "POD_IP_ADDR"
       externalAddr: "POD_IP_ADDR"
