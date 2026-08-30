@@ -53,10 +53,9 @@ global:
   smf:
     n4if:
       # POD_IP_ADDR is replaced with the real pod IP at startup (official
-      # free5gc-helm approach). Since IntEdge's routable pod fabric (§44),
+      # free5gc-helm approach).
       # this pod-IP identity IS cross-site routable once the n4/smf bindings
       # wire — UPF→SMF reports, DDN and heartbeats return over the fabric
-      # (verified: URR usage reports delivered cross-site, 2026-08-29).
       listenAddr: "0.0.0.0"
       nodeID: "POD_IP_ADDR"
       externalAddr: "POD_IP_ADDR"
