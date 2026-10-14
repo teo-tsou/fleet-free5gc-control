@@ -14,6 +14,11 @@ def check(name, cond, detail=""):
 # ── fake WebConsole ──
 DB = {}
 LOG = []
+def empty_profile(ue, plmn):   # the shape a live WebConsole returned for a SUPI it does not have (2026-10-14)
+    return {"plmnID": plmn, "ueId": ue, "AuthenticationSubscription": {"authenticationMethod": "", "permanentKey": None,
+            "sequenceNumber": ""}, "AccessAndMobilitySubscriptionData": {}, "SessionManagementSubscriptionData": None,
+            "SmfSelectionSubscriptionData": {}, "AmPolicyData": {}, "SmPolicyData": {"smPolicySnssaiData": None},
+            "FlowRules": [], "QosFlows": [], "ChargingDatas": []}
 class WC(BaseHTTPRequestHandler):
     def _j(self, code, obj):
         b = json.dumps(obj).encode(); self.send_response(code); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
@@ -40,7 +45,11 @@ class WC(BaseHTTPRequestHandler):
             return self._j(200, [{"ueId": k[0], "plmnID": k[1]} for k in DB])
         p = self.path.split("/")
         if p[2] == "tenant": return self._j(200, [{"email": "admin"}])
-        v = DB.get((p[3], p[4])); return self._j(200 if v else 404, v or {})
+        v = DB.get((p[3], p[4]))
+        if v: return self._j(200, v)
+        if p[3] == "imsi-404": return self._j(404, {})
+        # the real WebConsole (free5GC GetSubscriberByID): an unknown SUPI → HTTP 200, every field empty, permanentKey null
+        return self._j(200, empty_profile(p[3], p[4]))
     def do_PUT(self):
         LOG.append(("PUT", self.path))
         if not self._auth(): return self._j(401, {})
@@ -139,8 +148,39 @@ err, out = call("subscriber_delete", {"ueId": "imsi-208930000000012", "servingPl
 check("delete", not err and ("imsi-208930000000012", "20893") not in DB)
 err, out = call("subscriber_get", {"ueId": "../../api/login", "servingPlmnId": "20893"})
 check("a path trick in an id is refused before any call", err and "letters, digits and dashes" in out)
-err, out = call("subscriber_get", {"ueId": "imsi-1", "servingPlmnId": "20893"})
+err, out = call("subscriber_get", {"ueId": "imsi-404", "servingPlmnId": "20893"})
 check("WebConsole 404 → a tool error, not a crash", err and "HTTP 404" in out)
+# an unknown SUPI: the WebConsole answers 200 with an empty profile (permanentKey null); that is "no such subscriber",
+# never a subscriber "whose key is null" (the hub model read it that way on 2026-10-14)
+err, out = call("subscriber_get", {"ueId": "imsi-208930000000077", "servingPlmnId": "20893"})
+check("get: an unknown SUPI is a tool error naming it, not an empty profile",
+      err and out == "no subscriber imsi-208930000000077 in PLMN 20893")
+n_put = sum(1 for m, _ in LOG if m in ("PUT", "POST") and "/api/login" not in _)
+err, out = call("subscriber_patch", {"ueId": "imsi-208930000000077", "servingPlmnId": "20893",
+                                     "patchData": {"AccessAndMobilitySubscriptionData": {"subscribedUeAmbr": {"uplink": "1 Mbps"}}}})
+check("patch: an unknown SUPI is refused, no keyless subscriber is written",
+      err and "no subscriber" in out and ("imsi-208930000000077", "20893") not in DB
+      and sum(1 for m, _ in LOG if m in ("PUT", "POST") and "/api/login" not in _) == n_put)
+err, out = call("subscriber_update", {"ueId": "imsi-208930000000077", "servingPlmnId": "20893",
+                                      "subscriberData": {"AccessAndMobilitySubscriptionData": {}}})
+check("update: an unknown SUPI is refused (the WebConsole's PUT would create it)",
+      err and "no subscriber" in out and ("imsi-208930000000077", "20893") not in DB)
+DB[("imsi-208930000000055", "20893")] = empty_profile("imsi-208930000000055", "20893")   # listed, stored without a key
+err, out = call("subscriber_get", {"ueId": "imsi-208930000000055", "servingPlmnId": "20893"})
+check("get: a listed subscriber with no key → its profile and a warning that the UE cannot authenticate",
+      not err and out.get("warning") == srv.NO_KEY_WARNING
+      and out["result"]["AuthenticationSubscription"]["permanentKey"] is None)
+DB.pop(("imsi-208930000000055", "20893"))
+err, out = call("subscriber_get", {"ueId": "imsi-208930000000001", "servingPlmnId": "20893"})
+check("get: a subscriber with keys → no warning, keys \"[redacted]\"", not err and "warning" not in out
+      and out["result"]["AuthenticationSubscription"]["permanentKey"]["permanentKeyValue"] == "[redacted]"
+      and out["result"]["AuthenticationSubscription"]["opc"]["opcValue"] == "[redacted]")
+r = srv.redact({"AuthenticationSubscription": {"encPermanentKey": "a" * 32, "EncOpcKey": "b" * 32, "OPCVALUE": "c" * 32,
+                                               "milenage": {"op": {"opValue": ""}}, "permanentKey": None}})
+check("redact: other names and any casing are redacted; empty and null kept (they say 'not used' / 'none')",
+      "a" * 32 not in json.dumps(r) and "b" * 32 not in json.dumps(r) and "c" * 32 not in json.dumps(r)
+      and r["AuthenticationSubscription"]["milenage"]["op"]["opValue"] == ""
+      and r["AuthenticationSubscription"]["permanentKey"] is None)
 err, out = call("tenant_users_get", {"tenantId": "t-1"})
 check("tenant users", not err and out["result"] == [{"email": "admin"}])
 code, r = rpc("tools/call", {"name": "local_free5gc_start", "arguments": {}})

@@ -17,7 +17,9 @@ WEBCONSOLE_PASSWORD (a Kubernetes Secret), token in the "Token" header, one re-l
 
 SIM secrets never leave this server: every result has the subscriber keys (permanentKeyValue, opcValue, opValue) replaced
 by "[redacted]", so the assistant's model never sees them. A new subscriber gets the keys given in the call, or
-free5GC's standard test keys (the ones UERANSIM's example UEs use), as free5gc-MCP does.
+free5GC's standard test keys (the ones UERANSIM's example UEs use), as free5gc-MCP does. An unknown SUPI is a tool error
+(the WebConsole answers it with HTTP 200 and an empty profile, which would read as "no key"); get, update and patch
+never act on one.
 """
 import base64
 import copy
@@ -48,7 +50,10 @@ SKEW_S, MAX_TTL_S = 30, 300
 _NS = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 _seen = {}                                  # jti -> exp: each token once
 _ID = re.compile(r"^[A-Za-z0-9-]{1,64}$")   # ueId (imsi-…), PLMN id, tenant id: never a path trick
-SECRET_KEYS = {"permanentKeyValue", "opcValue", "opValue"}
+# the WebConsole's names (and, for a later free5GC whose API carries the R17 names or TUAK, those too); matched in any case
+SECRET_KEYS = {k.lower() for k in ("permanentKeyValue", "opcValue", "opValue", "topcValue", "topValue",
+                                   "encPermanentKey", "encOpcKey", "encTopcKey")}
+NO_KEY_WARNING = "this subscriber has no SIM key stored (no permanent key): the UE cannot authenticate until it gets one"
 TEST_K, TEST_OPC = "8baf473f2f8fd09487cccbd7097c6862", "8e27b6af0e692e750f32667a3b14605d"
 
 
@@ -169,10 +174,37 @@ WC = WebConsole()
 def redact(obj):
     """The subscriber keys replaced by "[redacted]" anywhere in a result (the model never sees a SIM secret)."""
     if isinstance(obj, dict):
-        return {k: ("[redacted]" if k in SECRET_KEYS and v not in ("", None) else redact(v)) for k, v in obj.items()}
+        return {k: ("[redacted]" if str(k).lower() in SECRET_KEYS and v not in ("", None) else redact(v))
+                for k, v in obj.items()}
     if isinstance(obj, list):
         return [redact(x) for x in obj]
     return obj
+
+
+def has_key(profile):
+    """True when a WebConsole profile carries a SIM permanent key (checked before redaction; the value is never read)."""
+    a = profile.get("AuthenticationSubscription") if isinstance(profile, dict) else None
+    if not isinstance(a, dict):
+        return False
+    pk = a.get("permanentKey")
+    return (isinstance(pk, dict) and pk.get("permanentKeyValue") not in ("", None)) or \
+        a.get("encPermanentKey") not in ("", None)
+
+
+def stored(ue, plmn):
+    """(status, profile) of a subscriber that exists, else ValueError. free5GC's WebConsole answers GET
+    /api/subscriber/<ueId>/<plmn> with HTTP 200 and an all-empty profile (permanentKey null) for a SUPI it does not
+    know, which reads as a subscriber without keys: a profile with no key is checked against the subscriber list."""
+    code, data = WC.call("GET", f"/api/subscriber/{ue}/{plmn}")
+    if code >= 400:
+        _out(code, data)
+    if not has_key(data):
+        lc, subs = WC.call("GET", "/api/subscriber")
+        if lc >= 400 or not isinstance(subs, list):
+            raise ValueError(f"the subscriber list could not be read (HTTP {lc})")
+        if not any(isinstance(s, dict) and s.get("ueId") == ue and s.get("plmnID") == plmn for s in subs):
+            raise ValueError(f"no subscriber {ue} in PLMN {plmn}")
+    return code, data
 
 
 def default_subscriber(ue_id, plmn, k=TEST_K, opc=TEST_OPC):
@@ -251,7 +283,11 @@ def call_tool(name, args):
     if name == "subscriber_list":
         return _out(*WC.call("GET", "/api/subscriber"))
     if name == "subscriber_get":
-        return _out(*WC.call("GET", f"/api/subscriber/{_id(args, 'ueId')}/{_id(args, 'servingPlmnId')}"))
+        code, data = stored(_id(args, "ueId"), _id(args, "servingPlmnId"))
+        out = _out(code, data)
+        if not has_key(data):
+            out["warning"] = NO_KEY_WARNING
+        return out
     if name == "tenant_users_get":
         return _out(*WC.call("GET", f"/api/tenant/{_id(args, 'tenantId')}/user"))
     if name in ("subscriber_create", "subscriber_create_multiple"):
@@ -270,12 +306,14 @@ def call_tool(name, args):
         ue, plmn = _id(args, "ueId"), _id(args, "servingPlmnId")
         if not isinstance(args.get("subscriberData"), dict):
             raise ValueError("subscriberData must be an object")
+        stored(ue, plmn)        # the WebConsole's PUT creates a missing subscriber: an update never does
         return _out(*WC.call("PUT", f"/api/subscriber/{ue}/{plmn}", args["subscriberData"]))
     if name == "subscriber_patch":
         ue, plmn = _id(args, "ueId"), _id(args, "servingPlmnId")
         if not isinstance(args.get("patchData"), dict):
             raise ValueError("patchData must be an object")
-        code, cur = WC.call("GET", f"/api/subscriber/{ue}/{plmn}")
+        # a missing subscriber reads as an empty profile: merged and PUT, it would create a subscriber with no SIM key
+        code, cur = stored(ue, plmn)
         if code != 200 or not isinstance(cur, dict):
             raise ValueError(f"the subscriber could not be read (HTTP {code})")
         merged = _merge(copy.deepcopy(cur), args["patchData"])
