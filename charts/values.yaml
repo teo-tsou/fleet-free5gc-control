@@ -123,3 +123,16 @@ mongodb:
     type: ClusterIP
     port: 27017
     nodePort: "30017"
+
+# free5GC MCP server (templates/free5gc-mcp.yaml): the platform's cluster assistant manages subscribers through it.
+mcp:
+  enabled: true
+  # The platform's public key (base64 of its PEM). fleet.yaml sets it from ${ .ClusterValues.platformMcpKey };
+  # empty = every call refused (fail closed).
+  platformKey: ""
+  webconsoleService: webui-service
+  webconsolePort: 5000
+  # The WebConsole account the MCP server logs in with (stored in a Secret). free5GC's default admin; change both here
+  # and in the WebConsole for anything beyond a lab.
+  webconsoleUser: admin
+  webconsolePassword: free5gc

@@ -1,0 +1,91 @@
+{{- /* free5GC MCP server (files/free5gc_mcp.py): the platform's cluster assistant manages subscribers through it.
+       Tools = mcp-manifest.json (repo root, signed; files/mcp-manifest.json is its byte-identical copy for the chart). */}}
+{{- if .Values.mcp.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: free5gc-mcp-code
+  labels: {app.kubernetes.io/name: free5gc-mcp}
+data:
+  server.py: |-
+{{ .Files.Get "files/free5gc_mcp.py" | indent 4 }}
+  mcp-manifest.json: |-
+{{ .Files.Get "files/mcp-manifest.json" | indent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: free5gc-mcp-webconsole
+  labels: {app.kubernetes.io/name: free5gc-mcp}
+type: Opaque
+stringData:
+  username: {{ .Values.mcp.webconsoleUser | quote }}
+  password: {{ .Values.mcp.webconsolePassword | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: free5gc-mcp
+  labels: {app.kubernetes.io/name: free5gc-mcp}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: free5gc-mcp}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: free5gc-mcp}
+      annotations:
+        checksum/code: {{ print (.Files.Get "files/free5gc_mcp.py") (.Files.Get "files/mcp-manifest.json") | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: server
+          # Python + `cryptography` (to check the platform's signature) in one maintained public image, by digest
+          image: docker.io/certbot/certbot@sha256:9626d72120577cf72da4fc7948806e9993598981720a4cbe04340a502468d67b  # v4.2.0
+          command: ["python3", "/app/server.py"]
+          env:
+            - {name: MANIFEST, value: /app/mcp-manifest.json}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: PLATFORM_KEY, value: {{ .Values.mcp.platformKey | quote }}}
+            - {name: WEBCONSOLE_URL, value: {{ printf "http://%s:%v" .Values.mcp.webconsoleService .Values.mcp.webconsolePort | quote }}}
+            - name: WEBCONSOLE_USER
+              valueFrom: {secretKeyRef: {name: free5gc-mcp-webconsole, key: username}}
+            - name: WEBCONSOLE_PASSWORD
+              valueFrom: {secretKeyRef: {name: free5gc-mcp-webconsole, key: password}}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          ports:
+            - {name: mcp, containerPort: 8811}
+          readinessProbe:
+            httpGet: {path: /healthz, port: mcp}
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 48Mi}
+            limits: {cpu: 200m, memory: 128Mi}
+          volumeMounts:
+            - {name: code, mountPath: /app, readOnly: true}
+      volumes:
+        - name: code
+          configMap: {name: free5gc-mcp-code}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: free5gc-mcp
+  labels: {app.kubernetes.io/name: free5gc-mcp}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: free5gc-mcp}
+  ports:
+    - {name: mcp, port: 8811, targetPort: mcp, protocol: TCP}
+{{- end }}
