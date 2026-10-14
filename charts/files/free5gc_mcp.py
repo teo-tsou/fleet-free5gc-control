@@ -296,7 +296,9 @@ def call_tool(name, args):
 def tools():
     with open(MANIFEST) as f:
         declared = json.load(f)["tools"]
-    return [{"name": t["name"], "description": t["description"], "inputSchema": t["input_schema"]} for t in declared]
+    # readOnlyHint: the manifest's word, so the platform's approval screen points out the tools that only read
+    return [{"name": t["name"], "description": t["description"], "inputSchema": t["input_schema"],
+             "annotations": {"readOnlyHint": t.get("read_only") is True}} for t in declared]
 
 
 # ── MCP over streamable HTTP ──────────────────────────────────────────────────────────────────────────────────────

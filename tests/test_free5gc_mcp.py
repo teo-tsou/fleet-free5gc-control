@@ -106,6 +106,10 @@ code, r = rpc("tools/list")
 manifest = json.load(open(os.path.join(ROOT, "mcp-manifest.json")))
 check("tools/list = the signed manifest (9 tools, nothing more)",
       [t["name"] for t in r["result"]["tools"]] == [t["name"] for t in manifest["tools"]] and len(manifest["tools"]) == 9)
+_ro = {t["name"]: t.get("annotations", {}).get("readOnlyHint") for t in r["result"]["tools"]}
+check("tools/list: readOnlyHint = the manifest's read_only (list, get, tenant users read; the rest change)",
+      _ro == {t["name"]: t["read_only"] for t in json.load(open(os.path.join(ROOT, "mcp-manifest.json")))["tools"]}
+      and _ro["subscriber_list"] is True and _ro["subscriber_delete"] is False)
 
 # subscribers
 err, out = call("subscriber_create", {"ueId": "imsi-208930000000001", "servingPlmnId": "20893"})
