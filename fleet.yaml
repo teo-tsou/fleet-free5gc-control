@@ -11,7 +11,3 @@ helm:
   releaseName: free5gc
   valuesFiles:
     - values.yaml
-  values:
-    mcp:
-      # the platform's key for this cluster, published by the platform on the cluster's Fleet object (MCP tool calls)
-      platformKey: ${ .ClusterValues.platformMcpKey }

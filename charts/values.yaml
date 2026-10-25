@@ -127,8 +127,9 @@ mongodb:
 # free5GC MCP server (templates/free5gc-mcp.yaml): the platform's cluster assistant manages subscribers through it.
 mcp:
   enabled: true
-  # The platform's public key (base64 of its PEM). fleet.yaml sets it from ${ .ClusterValues.platformMcpKey };
-  # empty = every call refused (fail closed).
+  # Optional: the platform's public key (base64 of its PEM). Not needed on IntEdge: the platform's MCP guard in front
+  # of the server checks every call. Given (e.g. ${ .ClusterValues.platformMcpKey } in fleet.yaml), the server also
+  # checks the token itself.
   platformKey: ""
   webconsoleService: webui-service
   webconsolePort: 5000

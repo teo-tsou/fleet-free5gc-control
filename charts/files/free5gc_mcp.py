@@ -6,9 +6,11 @@ default subscriber), ported to Python and served the way the platform expects an
   - Streamable HTTP (MCP 2025-06-18 / 2025-03-26), JSON-RPC 2.0, POST /mcp, Python standard library + `cryptography`;
   - the tools are exactly those declared in mcp-manifest.json (the platform reads that file from this repository at the
     signed commit it deploys, and stops using the server if what it serves ever differs);
-  - only the platform may call it: every request carries X-Platform-Token, signed by the hub's key (ECDSA P-256,
-    PLATFORM_KEY = base64 of its PEM, delivered through Fleet), for this namespace ("mcp:ns/<POD_NAMESPACE>"), for the
-    SHA-256 of this exact body, unexpired, used once. No key configured: every call is refused (fail closed).
+  - only the platform calls it: on IntEdge the platform's MCP guard sits in front of this server, checks every
+    request's X-Platform-Token and lets only itself reach this port (a NetworkPolicy), so this server needs no platform
+    code. Given PLATFORM_KEY (base64 of the hub's PEM), it ALSO checks the token itself (defense in depth): signed by
+    the hub's key (ECDSA P-256), for this namespace ("mcp:ns/<POD_NAMESPACE>"), for the SHA-256 of this exact body,
+    unexpired, used once.
 Not ported (lifecycle belongs to the platform, which deploys and upgrades free5GC through Fleet): the shell, systemd,
 kubectl and Helm tools (local_free5gc_*, k8s_*).
 
@@ -92,7 +94,7 @@ def check_token(token, body, now=None):
     except Exception:  # noqa: BLE001
         return "the platform key is not readable"
     if key is None:
-        return "no platform key is configured: every call is refused"
+        return None          # no key given: the platform's MCP guard in front of this server checks every call
     aud, why = expected_audience()
     if why:
         return why

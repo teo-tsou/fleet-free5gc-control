@@ -189,6 +189,7 @@ srv.WC.token = "stale"
 err, out = call("subscriber_list", {})
 check("a refused WebConsole token → one re-login, the call succeeds", not err and srv.WC.token == "tok-1")
 os.environ["PLATFORM_KEY"] = ""
-code, r = rpc("tools/list")
-check("no platform key configured → every call refused", code == 401 and "no platform key" in r["error"])
+code, r = rpc("tools/list", tok=False)
+check("no platform key configured → the server trusts the platform's guard in front of it (no token needed)",
+      code == 200 and "result" in r, (code, r))
 print("ALL PASSED" if not FAILS else f"{len(FAILS)} FAILED: {FAILS}"); sys.exit(1 if FAILS else 0)

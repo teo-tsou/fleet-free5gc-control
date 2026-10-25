@@ -64,9 +64,11 @@ to Python and served the way the platform expects an edge app's MCP server:
 
 - `mcp-manifest.json` (repo root) declares the server and the tools; the platform reads it at the signed commit it
   deploys. `charts/files/mcp-manifest.json` is a byte-identical copy for the chart (keep both the same).
-- Only the platform can call it: every request carries the platform's signed, single-use token
-  (`X-Platform-Token`, ECDSA P-256, bound to this namespace and the request body). The key arrives through Fleet
-  (`fleet.yaml`: `${ .ClusterValues.platformMcpKey }`); without it every call is refused.
+- Only the platform can call it: IntEdge puts its MCP guard in front of the server. The guard checks the platform's
+  signed, single-use token on every request (`X-Platform-Token`, ECDSA P-256, bound to this namespace and the request
+  body) and a NetworkPolicy lets only the guard reach port 8811, so this repository carries no platform key.
+  Optional, defense in depth: set `mcp.platformKey` (e.g. `${ .ClusterValues.platformMcpKey }` in `fleet.yaml`) and the
+  server checks the token itself too.
 - SIM keys (K, OPc, OP) are redacted from every result, so the assistant's model never sees them.
 - Not included: the original server's shell, systemd, kubectl and Helm tools. The platform deploys and upgrades free5GC.
 - The server logs into the WebConsole (`webui-service:5000`) with `mcp.webconsoleUser` / `mcp.webconsolePassword`
